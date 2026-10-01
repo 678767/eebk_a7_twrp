@@ -1,0 +1,100 @@
+name: Build TWRP recovery (ums512_1h10)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    name: Build TWRP 12.1 recovery
+    runs-on: ubuntu-22.04
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      MANIFEST: https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git
+      MANIFEST_BRANCH: twrp-12.1
+      DEVICE_TREE: https://github.com/${{ github.repository }}.git
+      DEVICE_TREE_BRANCH: main
+      DEVICE_PATH: device/eebbk/ums512_1h10
+      DEVICE_NAME: ums512_1h10
+      MAKEFILE_NAME: omni_ums512_1h10
+      BUILD_TARGET: recovery
+    permissions:
+      contents: write
+    steps:
+    - name: Check Out
+      uses: actions/checkout@v4
+
+    - name: Cleanup
+      uses: rokibhasansagar/slimhub_actions@main
+
+    - name: Set Swap Space
+      uses: pierotofy/set-swap-space@master
+      with:
+        swap-size-gb: 12
+
+    - name: Prepare the environment
+      run: |
+        sudo apt update
+        sudo apt -y install gperf gcc-multilib gcc-10-multilib g++-multilib g++-10-multilib \
+        libc6-dev lib32ncurses5-dev x11proto-core-dev libx11-dev tree lib32z-dev \
+        libgl1-mesa-dev libxml2-utils xsltproc bc ccache lib32readline-dev \
+        lib32z1-dev liblz4-tool libncurses5-dev libsdl1.2-dev libwxgtk3.0-gtk3-dev \
+        libxml2 lzop pngcrush schedtool squashfs-tools imagemagick libbz2-dev \
+        lzma ncftp qemu-user-static libstdc++-10-dev libtinfo5 libgflags-dev libncurses5
+
+    - name: Install OpenJDK
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'zulu'
+        java-version: '8'
+
+    - name: Install Git-Repo
+      run: |
+        mkdir ~/bin
+        curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
+        chmod a+x ~/bin/repo
+        sudo ln -sf ~/bin/repo /usr/bin/repo
+
+    - name: Initialize Repo
+      run: |
+        mkdir android-recovery
+        cd android-recovery
+        git config --global user.name "${{ github.actor }}"
+        git config --global user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+        repo init --depth=1 -u $MANIFEST -b $MANIFEST_BRANCH
+
+    - name: Repo Sync
+      run: |
+        cd android-recovery
+        repo sync -j$(nproc --all) --force-sync
+
+    - name: Clone Device Tree
+      run: |
+        cd android-recovery
+        git clone $DEVICE_TREE -b $DEVICE_TREE_BRANCH ./$DEVICE_PATH
+
+    - name: Building Image
+      run: |
+        cd android-recovery
+        source build/envsetup.sh
+        export ALLOW_MISSING_DEPENDENCIES=true
+        lunch $MAKEFILE_NAME-eng && make clean && make ${BUILD_TARGET}image -j$(nproc --all)
+        echo "Done building $BUILD_TARGET.img"
+
+    - name: Set Build Date
+      run: |
+        echo "BUILD_DATE=$(date +%Y%m%d)" >> $GITHUB_ENV
+
+    - name: Upload to Release
+      if: success()
+      uses: softprops/action-gh-release@v2
+      with:
+        files: |
+          android-recovery/out/target/product/${{ env.DEVICE_NAME }}/${{ env.BUILD_TARGET }}.img
+        name: TWRP recovery for ${{ env.DEVICE_NAME }} // ${{ env.BUILD_DATE }}
+        tag_name: ${{ github.run_id }}
+        body: |
+          Device: EEBBK A7 (ums512_1h10), Unisoc
+          Manifest: twrp-12.1 (minimal-manifest-twrp/platform_manifest_twrp_aosp)
+          Commit: ${{ github.sha }}
