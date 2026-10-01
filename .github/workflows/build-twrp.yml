@@ -79,8 +79,10 @@ jobs:
         cd android-recovery
         source build/envsetup.sh
         export ALLOW_MISSING_DEPENDENCIES=true
-        lunch $MAKEFILE_NAME-eng && make clean && make ${BUILD_TARGET}image -j$(nproc --all)
+        lunch $MAKEFILE_NAME-eng && make ${BUILD_TARGET}image -j$(nproc --all)
         echo "Done building $BUILD_TARGET.img"
+        ls -l out/target/product/$DEVICE_NAME/ || true
+        test -f out/target/product/$DEVICE_NAME/recovery.img
 
     - name: Set Build Date
       run: |
@@ -94,6 +96,7 @@ jobs:
           android-recovery/out/target/product/${{ env.DEVICE_NAME }}/${{ env.BUILD_TARGET }}.img
         name: TWRP recovery for ${{ env.DEVICE_NAME }} // ${{ env.BUILD_DATE }}
         tag_name: ${{ github.run_id }}
+        fail_on_unmatched_files: true
         body: |
           Device: EEBBK A7 (ums512_1h10), Unisoc
           Manifest: twrp-12.1 (minimal-manifest-twrp/platform_manifest_twrp_aosp)
